@@ -1,9 +1,9 @@
 Kubernetes 版本：
 $ kubectl get node
 NAME          STATUS   ROLES    AGE   VERSION
-k8s-master-1  Ready    master   23d   v1.18.8
-k8s-node-1    Ready    master   23d   v1.18.8
-k8s-node-2    Ready    master   23d   v1.18.8
+k8s-master-1  Ready    master   23d   v1.18.1
+k8s-node-1    Ready    master   23d   v1.18.1
+k8s-node-2    Ready    master   23d   v1.18.1
 
 Ceph 版本：
 $ ceph version
