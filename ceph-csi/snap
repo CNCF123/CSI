@@ -1,0 +1,107 @@
+快照功能需要安装快照控制器支持：
+
+克隆代码
+
+# git clone https://github.com/kubernetes-csi/external-snapshotter
+# cd external-snapshotter/deploy/kubernetes/snapshot-controller
+2.2）部署
+
+# kubectl external-snapshotter/deploy/kubernetes/snapshot-controller/
+# kubectl get pods | grep snapshot-controller
+snapshot-controller-0                           1/1     Running   0          20h
+2.3）部署crd
+
+# kubectl apply -f external-snapshotter/config/crd/
+# kubectl api-versions | grep snapshot
+snapshot.storage.k8s.io/v1beta1
+至此，Ceph-CSI和snapshot-controller安装完成。下面进行功能测试。测试功能前需要在ceph集群中创建对应的存储池：
+
+创建rbd类型pvc的快照，并验证基于快照恢复的可用性：
+
+创建上一步pvc的快照
+
+# cat snapshot.yaml
+---
+apiVersion: snapshot.storage.k8s.io/v1beta1
+kind: VolumeSnapshot
+metadata:
+  name: rbd-pvc-snapshot
+spec:
+  volumeSnapshotClassName: csi-rbdplugin-snapclass
+  source:
+    persistentVolumeClaimName: rbd-pvc
+ 
+# kubectl apply -f snapshot.yaml
+# kubectl get VolumeSnapshot rbd-pvc-snapshot
+NAME               READYTOUSE   SOURCEPVC   SOURCESNAPSHOTCONTENT   RESTORESIZE   SNAPSHOTCLASS             SNAPSHOTCONTENT                                    CREATIONTIME   AGE
+rbd-pvc-snapshot   true         rbd-pvc                             1Gi           csi-rbdplugin-snapclass   snapcontent-48f3e563-d21a-40bb-8e15-ddbf27886c88   19h            19h
+
+创建基于快照恢复的pvc
+
+# cat pvc-restore.yaml
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rbd-pvc-restore
+spec:
+  storageClassName: csi-rbd-sc
+  dataSource:
+    name: rbd-pvc-snapshot
+    kind: VolumeSnapshot
+    apiGroup: snapshot.storage.k8s.io
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+ 
+# kubectl apply -f pvc-restore.yaml
+
+
+创建pod应用快照恢复的pvc
+
+# cat pod-restore.yaml
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: csi-rbd-restore-demo-pod
+spec:
+  containers:
+    - name: web-server
+      image: nginx
+      volumeMounts:
+        - name: mypvc
+          mountPath: /var/lib/www/html
+  volumes:
+    - name: mypvc
+      persistentVolumeClaim:
+        claimName: rbd-pvc-restore
+        readOnly: false
+ 
+# kubectl apply -f pod-restore.yaml
+# kubectl get pods csi-rbd-restore-demo-pod
+NAME                       READY   STATUS    RESTARTS   AGE
+csi-rbd-restore-demo-pod   1/1     Running   0          18h
+# kubectl exec -ti csi-rbd-restore-demo-pod -- bash
+root@csi-rbd-restore-demo-pod:/# df -h
+Filesystem               Size  Used Avail Use% Mounted on
+overlay                  199G  7.4G  192G   4% /
+tmpfs                     64M     0   64M   0% /dev
+tmpfs                    7.8G     0  7.8G   0% /sys/fs/cgroup
+/dev/mapper/centos-root  199G  7.4G  192G   4% /etc/hosts
+shm                       64M     0   64M   0% /dev/shm
+/dev/rbd3                976M  2.6M  958M   1% /var/lib/www/html
+tmpfs                    7.8G   12K  7.8G   1% /run/secrets/kubernetes.io/serviceaccount
+tmpfs                    7.8G     0  7.8G   0% /proc/acpi
+tmpfs                    7.8G     0  7.8G   0% /proc/scsi
+tmpfs                    7.8G     0  7.8G   0% /sys/firmware
+
+root@csi-rbd-restore-demo-pod:/# cd /var/lib/www/html
+root@csi-rbd-restore-demo-pod:/var/lib/www/html# ls
+demo  lost+found
+root@csi-rbd-restore-demo-pod:/var/lib/www/html# cat demo/test.txt
+snapshot test
+
+//基于快照恢复数据功能正常
