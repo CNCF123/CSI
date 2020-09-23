@@ -4,12 +4,14 @@
 
 # git clone https://github.com/kubernetes-csi/external-snapshotter
 # cd external-snapshotter/deploy/kubernetes/snapshot-controller
-2.2）部署
+
+部署
 
 # kubectl external-snapshotter/deploy/kubernetes/snapshot-controller/
 # kubectl get pods | grep snapshot-controller
 snapshot-controller-0                           1/1     Running   0          20h
-2.3）部署crd
+
+部署crd
 
 # kubectl apply -f external-snapshotter/config/crd/
 # kubectl api-versions | grep snapshot
@@ -105,3 +107,113 @@ root@csi-rbd-restore-demo-pod:/var/lib/www/html# cat demo/test.txt
 snapshot test
 
 //基于快照恢复数据功能正常
+
+
+同一个pvc重复创建快照：
+
+再次对rbd-pvc创建快照
+
+# cat snapshot-1.yaml
+---
+apiVersion: snapshot.storage.k8s.io/v1beta1
+kind: VolumeSnapshot
+metadata:
+  name: rbd-pvc-snapshot-1
+spec:
+  volumeSnapshotClassName: csi-rbdplugin-snapclass
+  source:
+    persistentVolumeClaimName: rbd-pvc
+ 
+# kubectl apply -f snapshot-1.yaml
+# kubectl get VolumeSnapshot rbd-pvc-snapshot-1
+NAME                 READYTOUSE   SOURCEPVC   SOURCESNAPSHOTCONTENT   RESTORESIZE   SNAPSHOTCLASS             SNAPSHOTCONTENT                                    CREATIONTIME   AGE
+rbd-pvc-snapshot-1   true         rbd-pvc                             100Gi         csi-rbdplugin-snapclass   snapcontent-b82dceb0-7ba6-4a3e-88ab-2220b729d85f   18h            18h
+
+基于rbd-pvc-snapshot-1快照恢复pvc
+
+# cat pvc-restore-1.yaml
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rbd-pvc-restore-1
+spec:
+  storageClassName: csi-rbd-sc
+  dataSource:
+    name: rbd-pvc-snapshot-1
+    kind: VolumeSnapshot
+    apiGroup: snapshot.storage.k8s.io
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+ 
+# kubectl apply -f pvc-restore-1.yaml
+
+创建pod引用rbd-pvc-restore-1恢复的pvc
+
+# cat pod-restore-1.yaml
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: csi-rbd-restore-demo-pod-1
+spec:
+  containers:
+    - name: web-server
+      image: nginx
+      volumeMounts:
+        - name: mypvc
+          mountPath: /var/lib/www/html
+  volumes:
+    - name: mypvc
+      persistentVolumeClaim:
+        claimName: rbd-pvc-restore-1
+        readOnly: false
+ 
+# kubectl apply -f pod-restore-1.yaml
+NAME                         READY   STATUS    RESTARTS   AGE
+csi-rbd-restore-demo-pod-1   1/1     Running   0          18h
+
+# kubectl exec -ti csi-rbd-restore-demo-pod-1 -- bash
+root@csi-rbd-restore-demo-pod-1:/# df -h
+Filesystem               Size  Used Avail Use% Mounted on
+overlay                  199G  7.4G  192G   4% /
+tmpfs                     64M     0   64M   0% /dev
+tmpfs                    7.8G     0  7.8G   0% /sys/fs/cgroup
+/dev/mapper/centos-root  199G  7.4G  192G   4% /etc/hosts
+shm                       64M     0   64M   0% /dev/shm
+/dev/rbd4                 99G  6.8M   99G   1% /var/lib/www/html
+tmpfs                    7.8G   12K  7.8G   1% /run/secrets/kubernetes.io/serviceaccount
+tmpfs                    7.8G     0  7.8G   0% /proc/acpi
+tmpfs                    7.8G     0  7.8G   0% /proc/scsi
+tmpfs                    7.8G     0  7.8G   0% /sys/firmware
+root@csi-rbd-restore-demo-pod-1:/# cd /var/lib/www/html
+root@csi-rbd-restore-demo-pod-1:/var/lib/www/html# cat demo/test.txt
+snapshot test
+abc
+root@csi-rbd-restore-demo-pod-1:/var/lib/www/html# cat test/demo.txt
+abc
+ 
+// 至此验证扩容后的pvc，二次创建的快照恢复数据功能正常
+ 
+// 查看第一个创建的快照中是否有后续添加的文件数据,如下数据还是第一个快照创建时数据
+[root@cka-node-01 rbd]# kubectl exec -ti csi-rbd-restore-demo-pod -- bash
+root@csi-rbd-restore-demo-pod:/# df -h
+Filesystem               Size  Used Avail Use% Mounted on
+overlay                  199G  7.4G  192G   4% /
+tmpfs                     64M     0   64M   0% /dev
+tmpfs                    7.8G     0  7.8G   0% /sys/fs/cgroup
+/dev/mapper/centos-root  199G  7.4G  192G   4% /etc/hosts
+shm                       64M     0   64M   0% /dev/shm
+/dev/rbd3                976M  2.6M  958M   1% /var/lib/www/html
+tmpfs                    7.8G   12K  7.8G   1% /run/secrets/kubernetes.io/serviceaccount
+tmpfs                    7.8G     0  7.8G   0% /proc/acpi
+tmpfs                    7.8G     0  7.8G   0% /proc/scsi
+tmpfs                    7.8G     0  7.8G   0% /sys/firmware
+root@csi-rbd-restore-demo-pod:/# cd /var/lib/www/html
+root@csi-rbd-restore-demo-pod:/var/lib/www/html# cat demo/test.txt
+snapshot test
+root@csi-rbd-restore-demo-pod:/var/lib/www/html# ls
+demo  lost+found
