@@ -247,4 +247,4 @@ $ kubectl exec -it csi-rbd-demo-pod bash
 root@csi-rbd-demo-pod:/# lsblk -l|grep rbd
 rbd0   252:32   0     1G  0 disk /var/lib/www/html
 
-一切正常！1
+一切正常！
