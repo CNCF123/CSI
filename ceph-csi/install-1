@@ -14,8 +14,8 @@ ceph version 14.2.11 (f7fdb2f52131f54b891a2ec99d8205561242cdaf) nautilus (stable
 01  新建Ceph Pool 
  
 创建一个新的 ceph 存储池（pool） 给 Kubernetes 使用：
-$ ceph osd pool create kubernetes
-pool ' kubernetes' created
+$ ceph osd pool create kubernetes 64 64
+pool 'kubernetes' created
 
 查看所有的 pool
 $ ceph osd lspools
@@ -114,11 +114,11 @@ cat <<EOF > csi-rbd-secret.yaml
 apiVersion: v1
 kind: Secret
 metadata:
-name: csi-rbd-secret
-namespace: ceph-csi
+  name: csi-rbd-secret
+  namespace: ceph-csi
 stringData:
-userID: kubernetes
-userKey: AQBnz11fclrxChAAf8TFw8ROzmr8ifftAHQbTw==
+  userID: kubernetes
+  userKey: AQBnz11fclrxChAAf8TFw8ROzmr8ifftAHQbTw==
 EOF
 
 部署 Secret：
@@ -141,8 +141,12 @@ $ kubectl create -f csi-nodeplugin-psp.yaml
 
 部署 CSI sidecar
 
-将 csi-rbdplugin-provisioner.yaml 和 csi-rbdplugin.yaml 中的 kms 部分配置：
+将 csi-rbdplugin-provisioner.yaml 和 csi-rbdplugin.yaml 文件中的 kms 部分配置：
 使用 # 注释掉
+      #- name: ceph-csi-encryption-kms-config
+      #  mountPath: /etc/ceph-csi-encryption-kms-config/
+
+2个文件应该有多处需要 # 注释
 
 部署csi-rbdplugin-provisioner：
 $ kubectl -n ceph-csi create -f csi-rbdplugin-provisioner.yaml
