@@ -126,10 +126,9 @@ $ kubectl apply -f csi-rbd-secret.yaml
 
 RBAC 授权
 
-将所有配置清单中的 namespace 改成 ceph-csi ：
+将所有配置清单中的 namespace: default 改成 namespace: ceph-csi ：
 $ sed -i "s/namespace: default/namespace: ceph-csi/g" $(grep -rl "namespace: default" ./)
-$ sed -i -e "/^kind: ServiceAccount/{N;N;a\  namespace: ceph-csi  # 输入到这里的时候需要按一下回车键，在下一行继续输入
-  }" $(egrep -rl "^kind: ServiceAccount" ./)
+$ sed -i -e "/^kind: ServiceAccount/{N;N;a\  namespace: ceph-csi }" $(egrep -rl "^kind: ServiceAccount" ./)
 
 创建必须的 ServiceAccount 和 RBAC ClusterRole/ClusterRoleBinding 资源对象：
 $ kubectl create -f csi-provisioner-rbac.yaml
