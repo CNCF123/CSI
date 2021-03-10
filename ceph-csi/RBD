@@ -13,9 +13,12 @@ ceph version 14.2.11 (f7fdb2f52131f54b891a2ec99d8205561242cdaf) nautilus (stable
 
 01  新建Ceph Pool 
  
-创建一个新的 ceph 存储池（pool） 给 Kubernetes 使用：
+# 创建一个新的 ceph 存储池（pool） 给 Kubernetes 使用：
 # ceph osd pool create kubernetes 64 64
 pool 'kubernetes' created
+
+# 新创建的池必须在使用前初始化。使用rbd工具初始化池
+# rbd pool init kubernetes
 
 查看所有的 pool
 # ceph osd lspools
