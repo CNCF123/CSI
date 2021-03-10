@@ -1,0 +1,333 @@
+注意!!!：
+1.CephFS的快照功能需要Ceph版本为O版；
+2.创建了快照的pvc挂载需要内核4.14版本。
+
+
+一、集群和组件版本
+K8S集群：1.17.3+
+Ceph集群：Octopus（stables）
+Ceph-CSI：release-v3.1
+snapshotter-controller：release-2.1
+Linue kernel：3.10.0-1127.19.1.el7.x86_64 +
+
+二、部署
+1）部署Ceph-CSI
+1.1）克隆代码
+# git clone https://github.com/ceph/ceph-csi.git
+# cd ceph-csi/deploy/cephfs/kubernetes
+1.2）修改yaml文件
+1.2.1）配置csi-config-map.yaml文件链接ceph集群的信息
+
+# cat csi-config-map.yaml
+---
+apiVersion: v1
+kind: ConfigMap
+data:
+  config.json: |-
+    [
+      {
+        "clusterID": "c7b4xxf7-c61e-4668-9xx0-82c9xx5e3696",    // 通过ceph -s集群的ID
+        "monitors": [
+          "xxx.xxx.xxx.xxx:6789",
+          "xxx.xxx.xxx.xxx:6789",
+          "xxx.xxx.xxx.xxx:6789"
+        ]
+      }
+    ]
+metadata:
+  name: ceph-csi-config
+  
+1.2.2）部署cephfs相关的CSI
+
+创建一个新的 namespace 专门用来部署 ceph-csi：
+# kubectl create ns ceph-csi
+
+# kubectl apply -n ceph-csi -f ceph-csi/deploy/cephfs/kubernetes/
+# kubectl get pods | grep cephfs
+csi-cephfsplugin-8mvmf                          3/3     Running   0          2d21h
+csi-cephfsplugin-provisioner-78f64778db-42xwc   6/6     Running   0          2d21h
+csi-cephfsplugin-provisioner-78f64778db-jzpvd   6/6     Running   0          2d21h
+csi-cephfsplugin-provisioner-78f64778db-ntcmd   6/6     Running   0          2d21h
+csi-cephfsplugin-zlqzg                          3/3     Running   0          2d21h
+
+2)快照功能需要安装快照控制器支持：
+由于上篇 “K8S使用ceph-csi持久化存储之RBD” 以及部署，这里不需要重复部署。至此，Ceph-CSI和snapshot-controller安装完成。下面进行功能测试。测试功能前需要在ceph集群中创建对应的存储池：
+
+// 查看集群状态
+# ceph -s
+  cluster:
+    id:     c7b43ef7-c61e-4668-9970-82c9775e3696
+    health: HEALTH_OK
+ 
+  services:
+    mon: 1 daemons, quorum cka-node-01 (age 24h)
+    mgr: cka-node-01(active, since 24h), standbys: cka-node-02, cka-node-03
+    mds: cephfs:1 {0=cka-node-01=up:active} 2 up:standby
+    osd: 3 osds: 3 up, 3 in
+    rgw: 1 daemon active (cka-node-01)
+ 
+  task status:
+    scrub status:
+        mds.cka-node-01: idle
+ 
+  data:
+    pools:   7 pools, 184 pgs
+    objects: 827 objects, 1.7 GiB
+    usage:   8.1 GiB used, 52 GiB / 60 GiB avail
+    pgs:     184 active+clean
+ 
+  io:
+    client:   32 KiB/s rd, 0 B/s wr, 31 op/s rd, 21 op/s wr
+ 
+// 创建cephfs存储池fs_metadata，fs_data
+# ceph osd pool create fs_metadata 8 8
+# ceph osd pool create fs_data 8 8
+# ceph fs new cephfs fs_metadata fs_data
+
+ 
+// 获取集群信息和查看用户key
+# ceph mon dump
+dumped monmap epoch 3
+epoch 3
+fsid c7b43ef7-c61e-4668-9970-82c9775e3696
+last_changed 2020-09-11 11:05:25.529648
+created 2020-09-10 16:22:52.967856
+min_mon_release 14 (nautilus)
+0: [v2:10.0.xxx.xxx0:3300/0,v1:10.0.xxx.xxx:6789/0] mon.cka-node-01
+ 
+# ceph auth get client.admin
+exported keyring for client.admin
+[client.admin]
+	key = AQBg4llf+9CAGxdsx4tQzS+0OssssiTEQ==
+	caps mds = "allow *"
+	caps mgr = "allow *"
+	caps mon = "allow *"
+	caps osd = "allow *"
+三、验证
+验证如下功能：
+
+1）创建cephfs类型pvc给pod使用；
+2）创建cephfs类型pvc的快照，并验证基于快照恢复的可用性（CephFS的快照功能需要Ceph版本为O版）；
+3）创建快照后的pvc重复创建挂载（创建了快照的pvc挂载需要内核4.14版本）；
+1、创建cephfs类型pvc给pod使用：
+1.1) 创建连接ceph集群的秘钥
+
+# cat secret.yaml
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: csi-cephfs-secret
+  namespace: default
+stringData:
+  # Required for statically provisioned volumes
+  userID: admin
+  userKey: AQBg4llf+9CAGdsAds4tQzS+0O7dscB5ZTiTEQ==
+
+  # Required for dynamically provisioned volumes
+  adminID: admin
+  adminKey: AQBg4llf+9CAGdsAds4tQzS+0O7dscB5ZTiTEQ==
+ 
+# kubectl apply -f secret.yaml
+1.2) 创建storeclass
+
+# cat storageclass.yaml
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: csi-cephfs-sc
+provisioner: cephfs.csi.ceph.com
+parameters:
+  clusterID: c7b43ef7-c61e-4668-9970-82c9775e3696
+  fsName: cephfs
+  pool: fs_data
+  rootPath: /test
+  csi.storage.k8s.io/provisioner-secret-name: csi-cephfs-secret
+  csi.storage.k8s.io/provisioner-secret-namespace: default
+  csi.storage.k8s.io/controller-expand-secret-name: csi-cephfs-secret
+  csi.storage.k8s.io/controller-expand-secret-namespace: default
+  csi.storage.k8s.io/node-stage-secret-name: csi-cephfs-secret
+  csi.storage.k8s.io/node-stage-secret-namespace: default
+reclaimPolicy: Delete
+allowVolumeExpansion: true
+mountOptions:
+  - discard
+ 
+# kubectl apply -f storageclass.yaml
+1.3)基于storeclass创建pvc
+
+# cat pvc.yaml
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: csi-cephfs-pvc
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: csi-cephfs-sc
+ 
+# kubectl apply -f pvc.yaml
+# kubectl get pvc csi-cephfs-pvc
+NAME             STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS    AGE
+csi-cephfs-pvc   Bound    pvc-72b5c1e0-b2d5-4f93-8779-96cb03efa733   1Gi        RWX            csi-cephfs-sc   2d21h
+1.4）创建pod应用pvc
+
+# cat pod.yaml
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: csi-cephfs-demo-pod
+spec:
+  containers:
+    - name: web-server
+      image: nginx
+      volumeMounts:
+        - name: mypvc
+          mountPath: /var/lib/www
+  volumes:
+    - name: mypvc
+      persistentVolumeClaim:
+        claimName: csi-cephfs-pvc
+        readOnly: false
+ 
+# kubectl apply -f pod.yaml
+# kubectl get pods csi-cephfs-demo-pod
+NAME                  READY   STATUS    RESTARTS   AGE
+csi-cephfs-demo-pod   1/1     Running   0          2d21h
+
+# kubectl exec -ti csi-cephfs-demo-pod -- bash
+root@csi-cephfs-demo-pod:/# df -h
+Filesystem               Size  Used Avail Use% Mounted on
+overlay                  199G  7.9G  191G   4% /
+tmpfs                     64M     0   64M   0% /dev
+tmpfs                    7.9G     0  7.9G   0% /sys/fs/cgroup
+/dev/mapper/centos-root  199G  7.9G  191G   4% /etc/hosts
+shm                       64M     0   64M   0% /dev/shm
+ceph-fuse                1.0G     0  1.0G   0% /var/lib/www
+tmpfs                    7.9G   12K  7.9G   1% /run/secrets/kubernetes.io/serviceaccount
+tmpfs                    7.9G     0  7.9G   0% /proc/acpi
+tmpfs                    7.9G     0  7.9G   0% /proc/scsi
+tmpfs                    7.9G     0  7.9G   0% /sys/firmware
+
+# 写入文件，用于后续快照验证
+root@csi-cephfs-demo-pod:/# cd /var/lib/www;echo "abce" > test
+root@csi-cephfs-demo-pod:/var/lib/www# cat test
+abce
+2）创建cephfs类型pvc的快照，并验证基于快照恢复的可用性（CephFS的快照功能需要Ceph版本为O版）：
+2.1)创建上一步pvc的快照
+
+# cat snapshot.yaml
+---
+apiVersion: snapshot.storage.k8s.io/v1beta1
+kind: VolumeSnapshot
+metadata:
+  name: cephfs-pvc-snapshot
+spec:
+  volumeSnapshotClassName: csi-cephfsplugin-snapclass
+  source:
+    persistentVolumeClaimName: csi-cephfs-pvc
+ 
+# kubectl apply -f snapshot.yaml
+# kubectl get VolumeSnapshot cephfs-pvc-snapshot
+NAME                  READYTOUSE   SOURCEPVC        SOURCESNAPSHOTCONTENT   RESTORESIZE   SNAPSHOTCLASS                SNAPSHOTCONTENT                                    CREATIONTIME   AGE
+cephfs-pvc-snapshot   true         csi-cephfs-pvc                           1Gi           csi-cephfsplugin-snapclass   snapcontent-6100977b-96e0-43ae-903a-e8136b0f6ced   2d13h          2d21h
+2.2)创建基于快照恢复的pvc
+
+# cat pvc-restore.yaml
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cephfs-pvc-restore
+spec:
+  storageClassName: csi-cephfs-sc
+  dataSource:
+    name: cephfs-pvc-snapshot
+    kind: VolumeSnapshot
+    apiGroup: snapshot.storage.k8s.io
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+ 
+# kubectl apply -f pvc-restore.yaml
+2.3)创建pod应用快照恢复的pvc
+
+# cat pod-restore.yaml
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: csi-cephfs-restore-demo-pod
+spec:
+  containers:
+    - name: web-server
+      image: nginx
+      volumeMounts:
+        - name: mypvc
+          mountPath: /var/lib/www/html
+  volumes:
+    - name: mypvc
+      persistentVolumeClaim:
+        claimName: cephfs-pvc-restore
+        readOnly: false
+ 
+# kubectl apply -f pod-restore.yaml
+# kubectl get pods csi-cephfs-restore-demo-pod
+NAME                          READY   STATUS    RESTARTS   AGE
+csi-cephfs-restore-demo-pod   1/1     Running   0          2d21h
+# kubectl exec -ti csi-cephfs-restore-demo-pod -- bash
+root@csi-cephfs-restore-demo-pod:/# df -h
+Filesystem               Size  Used Avail Use% Mounted on
+overlay                  199G  7.9G  191G   4% /
+tmpfs                     64M     0   64M   0% /dev
+tmpfs                    7.9G     0  7.9G   0% /sys/fs/cgroup
+/dev/mapper/centos-root  199G  7.9G  191G   4% /etc/hosts
+shm                       64M     0   64M   0% /dev/shm
+ceph-fuse                1.0G     0  1.0G   0% /var/lib/www/html
+tmpfs                    7.9G   12K  7.9G   1% /run/secrets/kubernetes.io/serviceaccount
+tmpfs                    7.9G     0  7.9G   0% /proc/acpi
+tmpfs                    7.9G     0  7.9G   0% /proc/scsi
+tmpfs                    7.9G     0  7.9G   0% /sys/firmware
+
+root@csi-cephfs-restore-demo-pod:/# cd /var/lib/www/html
+root@csi-cephfs-restore-demo-pod:/var/lib/www/html# cat test
+abce
+ 
+//基于快照恢复数据功能正常
+3）创建快照后的pvc重复创建挂载（创建了快照的pvc挂载需要内核4.14版本，RBD类型也需要升级）：
+3.1)删除csi-cephfs-demo-pod这个pod后重建
+
+# kubectl delete -f pod.yaml
+# kubectl apply -f pod.yaml
+# kubectl get pods csi-cephfs-demo-pod
+NAME                  READY   STATUS    RESTARTS   AGE
+csi-cephfs-demo-pod   0/1     ContainerCreating   0          2d22h
+# kubectl describe pods csi-cephfs-demo-pod
+...
+Events:
+  Type     Reason                  Age              From                     Message
+  ----     ------                  ----             ----                     -------
+  Normal   Scheduled               <unknown>        default-scheduler        Successfully assigned jonathan/csi-rbd-demo-pod to 10.21.xxx.xxx
+  Normal   SuccessfulAttachVolume  25s              attachdetach-controller  AttachVolume.Attach succeeded for volume "pvc-d6ed5203-36c7-454b-8a8e-b49a084a0531"
+  Warning  FailedMount             0s (x5 over 9s)  kubelet, 10.21.xxx.xxx    MountVolume.MountDevice failed for volume "pvc-d6ed5203-36c7-454b-8a8e-b49a084a0531" : rpc error: code = Internal desc = rbd: map failed with error an error (exit status 6) occurred while running rbd args: [--id csi -m 10.xxx.xxx.xxx --keyfile=***stripped*** map volumes/csi-vol-9f2dcd03-f97e-11ea-8104-a608005a6960 --device-type krbd], rbd error output: rbd: sysfs write failed
+rbd: map failed: (6) No such device or address
+3.2）经过分析，该报错是因为node节点的Linux内核版本不支持，需要升级内核。此时的内核版本是3.10版本，升级到4.14版本后问题解决。如下：
+
+# kubectl get node -o wide
+NAME          STATUS   ROLES    AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                KERNEL-VERSION            CONTAINER-RUNTIME
+cka-node-01   Ready    master   60d   v1.17.3   10.0.xxx.xxx   <none>        CentOS Linux 7 (Core)   4.14.119-200.el7.x86_64   docker://19.3.12
+cka-node-02   Ready    <none>   60d   v1.17.3   10.0.xxx.xxx   <none>        CentOS Linux 7 (Core)   4.14.119-200.el7.x86_64   docker://19.3.12
+cka-node-03   Ready    <none>   60d   v1.17.3   10.0.xxx.xxx   <none>        CentOS Linux 7 (Core)   4.14.119-200.el7.x86_64   docker://19.3.12
+
+# kubectl get pods csi-cephfs-demo-pod
+NAME                  READY   STATUS    RESTARTS   AGE
+csi-cephfs-demo-pod   1/1     Running   0          2d01h
+注意：目前，每个CephFS文件系统限制为400个快照，如果PVC有快照，也无法删除，删除PVC之前，请确保删除PVC上的所有快照。
