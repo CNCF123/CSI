@@ -1,12 +1,12 @@
 Kubernetes 版本：
-$ kubectl get node
+# kubectl get node
 NAME          STATUS   ROLES    AGE   VERSION
 k8s-master-1  Ready    master   23d   v1.18.1
 k8s-node-1    Ready             23d   v1.18.1
 k8s-node-2    Ready             23d   v1.18.1
 
 Ceph 版本：
-$ ceph version
+# ceph version
 ceph version 14.2.11 (f7fdb2f52131f54b891a2ec99d8205561242cdaf) nautilus (stable)
 
 以下是详细部署过程：
@@ -14,11 +14,11 @@ ceph version 14.2.11 (f7fdb2f52131f54b891a2ec99d8205561242cdaf) nautilus (stable
 01  新建Ceph Pool 
  
 创建一个新的 ceph 存储池（pool） 给 Kubernetes 使用：
-$ ceph osd pool create kubernetes 64 64
+# ceph osd pool create kubernetes 64 64
 pool 'kubernetes' created
 
 查看所有的 pool
-$ ceph osd lspools
+# ceph osd lspools
 
 1 cephfs_data
 2 cephfs_metadata
@@ -32,13 +32,13 @@ $ ceph osd lspools
 02  新建用户
  
 为 Kubernetes 和 ceph-csi 单独创建一个新用户：
-$ ceph auth get-or-create client.kubernetes mon 'profile rbd' osd 'profile rbd pool=kubernetes' mgr 'profile rbd pool=kubernetes'
+# ceph auth get-or-create client.kubernetes mon 'profile rbd' osd 'profile rbd pool=kubernetes' mgr 'profile rbd pool=kubernetes'
 
 [client.kubernetes]
     key = AQBnz11fclrxChAAf8TFw8ROzmr8ifftAHQbTw==
     
 后面的配置需要用到这里的 key，如果忘了可以通过以下命令来获取：
-$ ceph auth get client.kubernetes
+# ceph auth get client.kubernetes
 exported keyring for client.kubernetes
 [client.kubernetes]
  key = AQBnz11fclrxChAAf8TFw8ROzmr8ifftAHQbTw==
@@ -50,11 +50,11 @@ exported keyring for client.kubernetes
 03 部署ceph-csi
  
 拉取 ceph-csi 的最新 release 分支：
-$ git clone --depth 1 --branch v3.1.0 https://gitclone.com/github.com/ceph/ceph-csi
+# git clone --depth 1 --branch v3.1.0 https://gitclone.com/github.com/ceph/ceph-csi
 这里使用 gitclone 来加速拉取。
 
 获取 ceph 集群的信息：
-$ ceph mon dump
+# ceph mon dump
 
 dumped monmap epoch 1
 epoch 1
@@ -71,9 +71,9 @@ fsid : 这个是 Ceph 的集群 ID。
 监控节点信息。目前 ceph-csi 只支持 V1版本的协议，所以监控节点那里我们只能用 V1 的那个 IP 和端口号（例如, 172.16.1.21:6789 ）。
 
 进入 ceph-csi 的 deploy/rbd/kubernetes 目录：
-$ cd deploy/rbd/kubernetes
+# cd deploy/rbd/kubernetes
 
-$ ls -l 
+# ls -l 
 -rw-r--r-- 1 root root  100 Sep 14 04:49 csi-config-map.yaml
 -rw-r--r-- 1 root root 1686 Sep 14 04:49 csi-nodeplugin-psp.yaml
 -rw-r--r-- 1 root root  858 Sep 14 04:49 csi-nodeplugin-rbac.yaml
@@ -103,10 +103,10 @@ metadata:
   name: ceph-csi-config
   
 创建一个新的 namespace 专门用来部署 ceph-csi：
-$ kubectl create ns ceph-csi
+# kubectl create ns ceph-csi
 
 将此 Configmap 存储到 Kubernetes 集群中：
-$ kubectl -n ceph-csi apply -f csi-config-map.yaml
+# kubectl -n ceph-csi apply -f csi-config-map.yaml
 新建 Secret
 
 使用创建的 kubernetes 用户 ID 和 cephx 密钥生成 Secret ：
@@ -122,21 +122,21 @@ stringData:
 EOF
 
 部署 Secret：
-$ kubectl apply -f csi-rbd-secret.yaml
+# kubectl apply -f csi-rbd-secret.yaml
 
 RBAC 授权
 
 将所有配置清单中的 namespace: default 改成 namespace: ceph-csi ：
-$ sed -i "s/namespace: default/namespace: ceph-csi/g" $(grep -rl "namespace: default" ./)
-$ sed -i -e "/^kind: ServiceAccount/{N;N;a\  namespace: ceph-csi }" $(egrep -rl "^kind: ServiceAccount" ./)
+# sed -i "s/namespace: default/namespace: ceph-csi/g" $(grep -rl "namespace: default" ./)
+# sed -i -e "/^kind: ServiceAccount/{N;N;a\  namespace: ceph-csi }" $(egrep -rl "^kind: ServiceAccount" ./)
 
 创建必须的 ServiceAccount 和 RBAC ClusterRole/ClusterRoleBinding 资源对象：
-$ kubectl create -f csi-provisioner-rbac.yaml
-$ kubectl create -f csi-nodeplugin-rbac.yaml
+# kubectl create -f csi-provisioner-rbac.yaml
+# kubectl create -f csi-nodeplugin-rbac.yaml
 
 创建 PodSecurityPolicy：
-$ kubectl create -f csi-provisioner-psp.yaml
-$ kubectl create -f csi-nodeplugin-psp.yaml
+# kubectl create -f csi-provisioner-psp.yaml
+# kubectl create -f csi-nodeplugin-psp.yaml
 
 部署 CSI sidecar
 
@@ -148,17 +148,17 @@ $ kubectl create -f csi-nodeplugin-psp.yaml
 2个文件应该有多处需要 # 注释
 
 部署csi-rbdplugin-provisioner：
-$ kubectl -n ceph-csi create -f csi-rbdplugin-provisioner.yaml
+# kubectl -n ceph-csi create -f csi-rbdplugin-provisioner.yaml
 这里面包含了 6 个 Sidecar 容器: 包括 external-provisioner、external-attacher、csi-resizer、 和 csi-rbdplugin 。
 部署 RBD CSI driver
 
 最后部署 RBD CSI Driver ：
-$ kubectl -n ceph-csi create -f csi-rbdplugin.yaml
+# kubectl -n ceph-csi create -f csi-rbdplugin.yaml
 Pod 中包含两个容器：CSI node-driver-registrar 和CSI RBD Driver 。
 
 创建 Storageclass
 
-$ cat <<EOF > storageclass.yaml
+# cat <<EOF > storageclass.yaml
 ---
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
@@ -192,22 +192,22 @@ Kubernetes 通过 persistentVolume 子系统为用户和管理员提供了一组
 下面通过官方仓库的示例来演示如何使用 ceph-csi。
 
 先进入 ceph-csi 项目的 example/rbd 目录，然后直接创建 PVC：
-$ kubectl apply -f pvc.yaml
+# kubectl apply -f pvc.yaml
 
 查看 PVC 和申请成功的 PV：
-$ kubectl get pvc
+# kubectl get pvc
 NAME      STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   AGE
 rbd-pvc   Bound    pvc-44b89f0e-4efd-4396-9316-10a04d289d7f   1Gi        RWO            csi-rbd-sc     8m21s
 
-$ kubectl get pv
+# kubectl get pv
 NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                STORAGECLASS   REASON   AGE
 pvc-44b89f0e-4efd-4396-9316-10a04d289d7f   1Gi        RWO            Delete           Bound    default/rbd-pvc      csi-rbd-sc              8m18s
 
 再创建示例 Pod：
-$ kubectl apply -f pod.yaml
+# kubectl apply -f pod.yaml
 
 进入 Pod 里面测试读写数据：
-$ kubectl exec -it csi-rbd-demo-pod bash
+# kubectl exec -it csi-rbd-demo-pod bash
 root@csi-rbd-demo-pod:/# cd /var/lib/www/
 root@csi-rbd-demo-pod:/var/lib/www# ls -l
 total 4
@@ -217,10 +217,10 @@ root@csi-rbd-demo-pod:/var/lib/www# cat sealos.txt
 https://fuckcloudnative.io
 
 列出 kubernetes pool 中的 rbd images ：
-$ rbd ls -p kubernetes
+# rbd ls -p kubernetes
 csi-vol-d9d011f9-f669-11ea-a3fa-ee21730897e6
 查看该 image 的特征：
-$ rbd info csi-vol-d9d011f9-f669-11ea-a3fa-ee21730897e6 -p kubernetes
+# rbd info csi-vol-d9d011f9-f669-11ea-a3fa-ee21730897e6 -p kubernetes
 rbd image 'csi-vol-d9d011f9-f669-11ea-a3fa-ee21730897e6':
  size 1 GiB in 256 objects
  order 22 (4 MiB objects)
@@ -237,16 +237,16 @@ rbd image 'csi-vol-d9d011f9-f669-11ea-a3fa-ee21730897e6':
 
 可以看到对 image 的特征限制生效了，这里只有layering。
 实际上这个 image 会被挂载到 node 中作为一个块设备，可以通过 rbd 命令查看映射信息：
-$ rbd showmapped
+# rbd showmapped
 id pool       namespace image                                        snap device
 0  kubernetes           csi-vol-d9d011f9-f669-11ea-a3fa-ee21730897e6 -    /dev/rbd0
 
 在 node 上查看挂载信息：
-$ lsblk -l|grep rbd
+# lsblk -l|grep rbd
 rbd0   252:32   0  1G  0 disk /var/lib/kubelet/pods/15179e76-e06e-4c0e-91dc-e6ecf2119f4b/volumes/kubernetes.io~csi/pvc-44b89f0e-4efd-4396-9316-10a04d289d7f/mount
 
 在 容器中查看挂载信息：
-$ kubectl exec -it csi-rbd-demo-pod bash
+# kubectl exec -it csi-rbd-demo-pod bash
 root@csi-rbd-demo-pod:/# lsblk -l|grep rbd
 rbd0   252:32   0     1G  0 disk /var/lib/www/html
 
