@@ -190,6 +190,8 @@ imageFeatures 用来确定创建的 image 特征，如果不指定，就会使�
 创建此StorageClass
 kubectl apply -f storageclass.yaml
 
+将其设置为默认存储：
+kubectl patch storageclass <StorageClass-name> -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
  
 04 试用 ceph-csi
  
@@ -217,8 +219,8 @@ root@csi-rbd-demo-pod:/# cd /var/lib/www/
 root@csi-rbd-demo-pod:/var/lib/www# ls -l
 total 4
 drwxrwxrwx 3 root root 4096 Sep 14 09:09 html
-root@csi-rbd-demo-pod:/var/lib/www# echo "https://fuckcloudnative.io" > sealos.txt
-root@csi-rbd-demo-pod:/var/lib/www# cat sealos.txt
+root@csi-rbd-demo-pod:/var/lib/www# echo "this is test" > test.txt
+root@csi-rbd-demo-pod:/var/lib/www# cat test.txt
 https://fuckcloudnative.io
 
 列出 kubernetes pool 中的 rbd images ：
