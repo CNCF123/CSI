@@ -187,6 +187,8 @@ EOF
 
 这里的 clusterID  对应之前步骤中的 fsid 。
 imageFeatures 用来确定创建的 image 特征，如果不指定，就会使用 RBD 内核中的特征列表，但 Linux 不一定支持所有特征，所以这里需要限制一下。
+创建此StorageClass
+kubectl apply -f storageclass.yaml
 
  
 04 试用 ceph-csi
