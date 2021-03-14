@@ -52,9 +52,8 @@ exported keyring for client.kubernetes
  
 03 部署ceph-csi
  
-拉取 ceph-csi 的最新 release 分支：
-# git clone --depth 1 --branch v3.1.0 https://gitclone.com/github.com/ceph/ceph-csi
-这里使用 gitclone 来加速拉取。
+拉取 ceph-csi 的v3.1.0 release 分支：
+https://github.com/ceph/ceph-csi/archive/v3.1.0.tar.gz
 
 获取 ceph 集群的信息：
 # ceph mon dump
